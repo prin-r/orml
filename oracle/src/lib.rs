@@ -77,8 +77,8 @@ pub struct TimestampedValue<Value, Moment> {
 	pub timestamp: Moment,
 }
 
-pub trait Trait: frame_system::Trait {
-	type Event: From<Event<Self>> + Into<<Self as frame_system::Trait>::Event>;
+pub trait Trait<I: Instance = DefaultInstance>: frame_system::Trait {
+	type Event: From<Event<Self, I>> + Into<<Self as frame_system::Trait>::Event>;
 
 	/// Hook on new data received
 	type OnNewData: OnNewData<Self::AccountId, Self::OracleKey, Self::OracleValue>;
@@ -107,7 +107,7 @@ pub trait Trait: frame_system::Trait {
 }
 
 decl_storage! {
-	trait Store for Module<T: Trait> as Oracle {
+	trait Store for Module<T: Trait<I>, I: Instance=DefaultInstance> as Oracle {
 
 		/// Raw values for each oracle operators
 		pub RawValues get(fn raw_values): double_map hasher(twox_64_concat) T::AccountId, hasher(twox_64_concat) T::OracleKey => Option<TimestampedValueOf<T>>;
@@ -133,15 +133,15 @@ decl_storage! {
 }
 
 decl_error! {
-	pub enum Error for Module<T: Trait> {
+	pub enum Error for Module<T: Trait<I>, I: Instance> {
 		/// Sender does not have permission
 		NoPermission,
 	}
 }
 
 decl_module! {
-	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
-		type Error = Error<T>;
+	pub struct Module<T: Trait<I>, I: Instance=DefaultInstance> for enum Call where origin: T::Origin {
+		type Error = Error<T,I>;
 
 		fn deposit_event() = default;
 
@@ -170,20 +170,20 @@ decl_module! {
 		#[weight = 10_000_000]
 		pub fn set_session_key(origin, key: T::AuthorityId) {
 			let who = ensure_signed(origin)?;
-			ensure!(Self::members().contains(&who), Error::<T>::NoPermission);
+			ensure!(Self::members().contains(&who), Error::<T,I>::NoPermission);
 
-			SessionKeys::<T>::insert(who, key);
+			SessionKeys::<T,I>::insert(who, key);
 		}
 
 		fn on_finalize(_n: T::BlockNumber) {
 			// cleanup for next block
-			<HasDispatched<T>>::kill();
+			<HasDispatched<T,I>>::kill();
 		}
 	}
 }
 
 decl_event!(
-	pub enum Event<T> where
+	pub enum Event<T, I=DefaultInstance> where
 		<T as frame_system::Trait>::AccountId,
 		<T as Trait>::OracleKey,
 		<T as Trait>::OracleValue,
@@ -193,7 +193,7 @@ decl_event!(
 	}
 );
 
-impl<T: Trait> Module<T> {
+impl<T: Trait<I>, I: Instance> Module<T, I> {
 	pub fn read_raw_values(key: &T::OracleKey) -> Vec<TimestampedValueOf<T>> {
 		Self::members()
 			.0
@@ -207,11 +207,11 @@ impl<T: Trait> Module<T> {
 	/// Note this will update values storage if has update.
 	pub fn get(key: &T::OracleKey) -> Option<TimestampedValueOf<T>> {
 		if Self::is_updated(key) {
-			<Values<T>>::get(key)
+			<Values<T, I>>::get(key)
 		} else {
 			let timestamped = Self::combined(key)?;
-			<Values<T>>::insert(key, timestamped.clone());
-			IsUpdated::<T>::insert(key, true);
+			<Values<T, I>>::insert(key, timestamped.clone());
+			IsUpdated::<T, I>::insert(key, true);
 			Some(timestamped)
 		}
 	}
@@ -228,7 +228,7 @@ impl<T: Trait> Module<T> {
 	}
 
 	pub fn get_all_values() -> Vec<(T::OracleKey, Option<TimestampedValueOf<T>>)> {
-		<Values<T>>::iter()
+		<Values<T, I>>::iter()
 			.map(|(key, _)| key)
 			.map(|key| {
 				let v = Self::get_no_op(&key);
@@ -250,8 +250,8 @@ impl<T: Trait> Module<T> {
 				value: value.clone(),
 				timestamp: now,
 			};
-			RawValues::<T>::insert(&who, &key, timestamped);
-			IsUpdated::<T>::remove(&key);
+			RawValues::<T, I>::insert(&who, &key, timestamped);
+			IsUpdated::<T, I>::remove(&key);
 
 			T::OnNewData::on_new_data(&who, &key, &value);
 		}
@@ -260,28 +260,28 @@ impl<T: Trait> Module<T> {
 	}
 }
 
-impl<T: Trait> InitializeMembers<T::AccountId> for Module<T> {
+impl<T: Trait<I>, I: Instance> InitializeMembers<T::AccountId> for Module<T, I> {
 	fn initialize_members(members: &[T::AccountId]) {
 		if !members.is_empty() {
-			assert!(Members::<T>::get().0.is_empty(), "Members are already initialized!");
-			Members::<T>::put(OrderedSet::from_sorted_set(members.into()));
+			assert!(Members::<T, I>::get().0.is_empty(), "Members are already initialized!");
+			Members::<T, I>::put(OrderedSet::from_sorted_set(members.into()));
 		}
 	}
 }
 
-impl<T: Trait> ChangeMembers<T::AccountId> for Module<T> {
+impl<T: Trait<I>, I: Instance> ChangeMembers<T::AccountId> for Module<T, I> {
 	fn change_members_sorted(_incoming: &[T::AccountId], outgoing: &[T::AccountId], new: &[T::AccountId]) {
 		// remove session keys and its values
 		for removed in outgoing {
-			SessionKeys::<T>::remove(removed);
-			RawValues::<T>::remove_prefix(removed);
-			Nonces::<T>::remove(removed);
+			SessionKeys::<T, I>::remove(removed);
+			RawValues::<T, I>::remove_prefix(removed);
+			Nonces::<T, I>::remove(removed);
 		}
 
-		Members::<T>::put(OrderedSet::from_sorted_set(new.into()));
+		Members::<T, I>::put(OrderedSet::from_sorted_set(new.into()));
 
 		// not bothering to track which key needs recompute, just update all
-		IsUpdated::<T>::remove_all();
+		IsUpdated::<T, I>::remove_all();
 	}
 
 	fn set_prime(_prime: Option<T::AccountId>) {
@@ -289,25 +289,25 @@ impl<T: Trait> ChangeMembers<T::AccountId> for Module<T> {
 	}
 }
 
-impl<T: Trait> DataProvider<T::OracleKey, T::OracleValue> for Module<T> {
+impl<T: Trait<I>, I: Instance> DataProvider<T::OracleKey, T::OracleValue> for Module<T, I> {
 	fn get(key: &T::OracleKey) -> Option<T::OracleValue> {
 		Self::get(key).map(|timestamped_value| timestamped_value.value)
 	}
 }
 
-impl<T: Trait> DataProviderExtended<T::OracleKey, T::OracleValue, T::AccountId> for Module<T> {
+impl<T: Trait<I>, I: Instance> DataProviderExtended<T::OracleKey, T::OracleValue, T::AccountId> for Module<T, I> {
 	fn feed_value(who: T::AccountId, key: T::OracleKey, value: T::OracleValue) -> DispatchResult {
 		Self::do_feed_values(who, vec![(key, value)]);
 		Ok(())
 	}
 }
 
-impl<T: Trait> frame_support::unsigned::ValidateUnsigned for Module<T> {
-	type Call = Call<T>;
+impl<T: Trait<I>, I: Instance> frame_support::unsigned::ValidateUnsigned for Module<T, I> {
+	type Call = Call<T, I>;
 
 	fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 		if let Call::feed_values(value, index, block, signature) = call {
-			let now = <frame_system::Module<T>>::block_number();
+			let now = <frame_system::Module<T, I>>::block_number();
 
 			if now > *block + EXTRINSIC_LONGEVITY.into() {
 				return Err(InvalidTransaction::Stale.into());
@@ -316,12 +316,12 @@ impl<T: Trait> frame_support::unsigned::ValidateUnsigned for Module<T> {
 				return Err(InvalidTransaction::Future.into());
 			}
 
-			let members = Module::<T>::members();
+			let members = Module::<T, I>::members();
 			let who = members.0.get(*index as usize);
 			if let Some(who) = who {
-				let nonce = Module::<T>::nonces(&who);
+				let nonce = Module::<T, I>::nonces(&who);
 
-				let signature_valid = Module::<T>::session_keys(&who)
+				let signature_valid = Module::<T, I>::session_keys(&who)
 					.map(|session_key| {
 						(nonce, block, value).using_encoded(|payload| session_key.verify(&payload, &signature))
 					})
@@ -332,13 +332,13 @@ impl<T: Trait> frame_support::unsigned::ValidateUnsigned for Module<T> {
 				}
 
 				// ensure account hasn't dispatched an updated yet
-				let ok = HasDispatched::<T>::mutate(|set| set.insert(who.clone()));
+				let ok = HasDispatched::<T, I>::mutate(|set| set.insert(who.clone()));
 				if !ok {
 					// we already received a feed for this operator
 					return Err(InvalidTransaction::Stale.into());
 				}
 
-				Nonces::<T>::insert(who, nonce + 1);
+				Nonces::<T, I>::insert(who, nonce + 1);
 
 				// make priority less likely to overflow.
 				// this ensures tx sent later overrides old one
