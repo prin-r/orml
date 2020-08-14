@@ -64,8 +64,8 @@ pub type AuthoritySignature = app_sr25519::Signature;
 /// An oracle identifier using sr25519 as its crypto.
 pub type AuthorityId = app_sr25519::Public;
 
-type MomentOf<T> = <<T as Trait>::Time as Time>::Moment;
-pub type TimestampedValueOf<T> = TimestampedValue<<T as Trait>::OracleValue, MomentOf<T>>;
+type MomentOf<T, I> = <<T as Trait<I>>::Time as Time>::Moment;
+pub type TimestampedValueOf<T, I> = TimestampedValue<<T as Trait<I>>::OracleValue, MomentOf<T, I>>;
 
 /// Number of blocks before an unconfirmed unsigned transaction expires.
 pub const EXTRINSIC_LONGEVITY: u32 = 100;
@@ -77,7 +77,7 @@ pub struct TimestampedValue<Value, Moment> {
 	pub timestamp: Moment,
 }
 
-pub trait Trait<I: Instance = DefaultInstance>: frame_system::Trait {
+pub trait Trait<I: Instance>: frame_system::Trait {
 	type Event: From<Event<Self, I>> + Into<<Self as frame_system::Trait>::Event>;
 
 	/// Hook on new data received
@@ -85,7 +85,7 @@ pub trait Trait<I: Instance = DefaultInstance>: frame_system::Trait {
 
 	/// Provide the implementation to combine raw values to produce aggregated
 	/// value
-	type CombineData: CombineData<Self::OracleKey, TimestampedValueOf<Self>>;
+	type CombineData: CombineData<Self::OracleKey, TimestampedValueOf<Self, I>>;
 
 	/// Time provider
 	type Time: Time;
@@ -107,16 +107,16 @@ pub trait Trait<I: Instance = DefaultInstance>: frame_system::Trait {
 }
 
 decl_storage! {
-	trait Store for Module<T: Trait<I>, I: Instance=DefaultInstance> as Oracle {
+	trait Store for Module<T: Trait<I>, I: Instance> as Oracle {
 
 		/// Raw values for each oracle operators
-		pub RawValues get(fn raw_values): double_map hasher(twox_64_concat) T::AccountId, hasher(twox_64_concat) T::OracleKey => Option<TimestampedValueOf<T>>;
+		pub RawValues get(fn raw_values): double_map hasher(twox_64_concat) T::AccountId, hasher(twox_64_concat) T::OracleKey => Option<TimestampedValueOf<T,I>>;
 
 		/// True if Self::values(key) is up to date, otherwise the value is stale
 		pub IsUpdated get(fn is_updated): map hasher(twox_64_concat) T::OracleKey => bool;
 
 		/// Combined value, may not be up to date
-		pub Values get(fn values): map hasher(twox_64_concat) T::OracleKey => Option<TimestampedValueOf<T>>;
+		pub Values get(fn values): map hasher(twox_64_concat) T::OracleKey => Option<TimestampedValueOf<T,I>>;
 
 		/// If an oracle operator has feed a value in this block
 		HasDispatched: OrderedSet<T::AccountId>;
@@ -140,7 +140,7 @@ decl_error! {
 }
 
 decl_module! {
-	pub struct Module<T: Trait<I>, I: Instance=DefaultInstance> for enum Call where origin: T::Origin {
+	pub struct Module<T: Trait<I>, I: Instance> for enum Call where origin: T::Origin {
 		type Error = Error<T,I>;
 
 		fn deposit_event() = default;
@@ -183,10 +183,10 @@ decl_module! {
 }
 
 decl_event!(
-	pub enum Event<T, I=DefaultInstance> where
+	pub enum Event<T, I> where
 		<T as frame_system::Trait>::AccountId,
-		<T as Trait>::OracleKey,
-		<T as Trait>::OracleValue,
+		<T as Trait<I>>::OracleKey,
+		<T as Trait<I>>::OracleValue,
 	{
 		/// New feed data is submitted. [sender, values]
 		NewFeedData(AccountId, Vec<(OracleKey, OracleValue)>),
@@ -194,7 +194,7 @@ decl_event!(
 );
 
 impl<T: Trait<I>, I: Instance> Module<T, I> {
-	pub fn read_raw_values(key: &T::OracleKey) -> Vec<TimestampedValueOf<T>> {
+	pub fn read_raw_values(key: &T::OracleKey) -> Vec<TimestampedValueOf<T, I>> {
 		Self::members()
 			.0
 			.iter()
@@ -205,7 +205,7 @@ impl<T: Trait<I>, I: Instance> Module<T, I> {
 	/// Returns fresh combined value if has update, or latest combined value.
 	///
 	/// Note this will update values storage if has update.
-	pub fn get(key: &T::OracleKey) -> Option<TimestampedValueOf<T>> {
+	pub fn get(key: &T::OracleKey) -> Option<TimestampedValueOf<T, I>> {
 		if Self::is_updated(key) {
 			<Values<T, I>>::get(key)
 		} else {
@@ -219,7 +219,7 @@ impl<T: Trait<I>, I: Instance> Module<T, I> {
 	/// Returns fresh combined value if has update, or latest combined value.
 	///
 	/// This is a no-op function which would not change storage.
-	pub fn get_no_op(key: &T::OracleKey) -> Option<TimestampedValueOf<T>> {
+	pub fn get_no_op(key: &T::OracleKey) -> Option<TimestampedValueOf<T, I>> {
 		if Self::is_updated(key) {
 			Self::values(key)
 		} else {
@@ -227,7 +227,7 @@ impl<T: Trait<I>, I: Instance> Module<T, I> {
 		}
 	}
 
-	pub fn get_all_values() -> Vec<(T::OracleKey, Option<TimestampedValueOf<T>>)> {
+	pub fn get_all_values() -> Vec<(T::OracleKey, Option<TimestampedValueOf<T, I>>)> {
 		<Values<T, I>>::iter()
 			.map(|(key, _)| key)
 			.map(|key| {
@@ -237,7 +237,7 @@ impl<T: Trait<I>, I: Instance> Module<T, I> {
 			.collect()
 	}
 
-	fn combined(key: &T::OracleKey) -> Option<TimestampedValueOf<T>> {
+	fn combined(key: &T::OracleKey) -> Option<TimestampedValueOf<T, I>> {
 		let values = Self::read_raw_values(key);
 		T::CombineData::combine_data(key, values, Self::values(key))
 	}
@@ -307,7 +307,7 @@ impl<T: Trait<I>, I: Instance> frame_support::unsigned::ValidateUnsigned for Mod
 
 	fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 		if let Call::feed_values(value, index, block, signature) = call {
-			let now = <frame_system::Module<T, I>>::block_number();
+			let now = <frame_system::Module<T>>::block_number();
 
 			if now > *block + EXTRINSIC_LONGEVITY.into() {
 				return Err(InvalidTransaction::Stale.into());
