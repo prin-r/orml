@@ -1,12 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 use codec::{Decode, Encode};
 use sp_runtime::{DispatchResult, RuntimeDebug};
-use sp_std::{
-	cmp::{Eq, PartialEq},
-	marker,
-	prelude::Vec,
-	prelude::*,
-};
+use sp_std::cmp::{Eq, PartialEq};
 
 pub use auction::{Auction, AuctionHandler, AuctionInfo, OnNewBidResult};
 pub use currency::{
@@ -63,5 +58,3 @@ pub trait MultiDataProvider<ProviderId, Key, Value>: frame_system::Trait {
 	/// Provide a new value for given key and ProviderId from an operator
 	fn get(source: ProviderId, key: &Key) -> Option<Value>;
 }
-
-pub struct AggregatedDataProvider<T, MinimumCount, ExpiresIn>(marker::PhantomData<(T, MinimumCount, ExpiresIn)>);
