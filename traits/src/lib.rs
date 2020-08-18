@@ -54,7 +54,7 @@ pub enum Change<Value> {
 }
 
 /// A simple trait to provide data from a given ProviderId
-pub trait MultiDataProvider<ProviderId, Key, Value>: frame_system::Trait {
+pub trait MultiDataProvider<ProviderId, Key, Value> {
 	/// Provide a new value for given key and ProviderId from an operator
 	fn get(source: ProviderId, key: &Key) -> Option<Value>;
 }
