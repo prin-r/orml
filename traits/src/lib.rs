@@ -10,6 +10,8 @@ pub use currency::{
 };
 pub use price::{DefaultPriceProvider, PriceProvider};
 
+use sp_std::prelude::Vec;
+
 pub mod arithmetic;
 pub mod auction;
 pub mod currency;
@@ -57,4 +59,36 @@ pub enum Change<Value> {
 pub trait MultiDataProvider<ProviderId, Key, Value> {
 	/// Provide a new value for given key and ProviderId from an operator
 	fn get(source: ProviderId, key: &Key) -> Option<Value>;
+}
+
+#[macro_export]
+macro_rules! create_median_value_data_provider {
+	(
+		$TypeName:ident, $( $Provider:ty ),*
+	) => {
+		pub struct $TypeName;
+		impl DataProvider<CurrencyId, Price> for $TypeName {
+			fn get(key: &CurrencyId) -> Option<Price> {
+				let mut values: Vec<Option<Price>> = Vec::new();
+				$(
+					values.push(<$Provider as DataProvider<CurrencyId, Price>>::get(&key));
+				)*
+
+				values.retain(|&x| x != None);
+				values.sort_by(|a, b| a.cmp(&b));
+				if values.len() == 0 {
+					return None;
+				}
+				let mid = values.len() / 2;
+				if values.len() % 2 == 0 {
+					match (values[mid - 1], values[mid]) {
+						(Some(x), Some(y)) => Some((x + y) / FixedU128::saturating_from_integer(2)),
+						_ => None,
+					}
+				} else {
+					values[mid]
+				}
+			}
+		}
+	};
 }
