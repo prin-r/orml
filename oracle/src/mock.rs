@@ -1,7 +1,6 @@
 #![cfg(test)]
 
 use super::*;
-
 use frame_support::{impl_outer_dispatch, impl_outer_origin, parameter_types, weights::Weight};
 use sp_core::H256;
 use sp_runtime::{
@@ -9,6 +8,7 @@ use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 	Perbill,
 };
+
 use std::cell::RefCell;
 
 impl_outer_origin! {
@@ -100,6 +100,7 @@ impl Trait for Test {
 	type UnsignedPriority = UnsignedPriority;
 	type AuthorityId = UintAuthorityId;
 }
+
 pub type ModuleOracle = Module<Test>;
 // This function basically just builds a genesis storage key/value store
 // according to our desired mockup.

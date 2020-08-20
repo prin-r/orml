@@ -1,11 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-
 use codec::{Decode, Encode};
 use sp_runtime::{DispatchResult, RuntimeDebug};
-use sp_std::{
-	cmp::{Eq, PartialEq},
-	prelude::Vec,
-};
+use sp_std::cmp::{Eq, PartialEq};
 
 pub use auction::{Auction, AuctionHandler, AuctionInfo, OnNewBidResult};
 pub use currency::{
@@ -13,6 +9,8 @@ pub use currency::{
 	LockIdentifier, MultiCurrency, MultiCurrencyExtended, MultiLockableCurrency, MultiReservableCurrency, OnReceived,
 };
 pub use price::{DefaultPriceProvider, PriceProvider};
+
+use sp_std::prelude::Vec;
 
 pub mod arithmetic;
 pub mod auction;
@@ -55,4 +53,43 @@ pub enum Change<Value> {
 	NoChange,
 	/// Changed to new value.
 	NewValue(Value),
+}
+
+/// A simple trait to provide data from a given ProviderId
+pub trait MultiDataProvider<ProviderId, Key, Value> {
+	/// Provide a new value for given key and ProviderId from an operator
+	fn get(source: ProviderId, key: &Key) -> Option<Value>;
+}
+
+/// TODO: Modify this macro to support get_no_op and get_all_values
+#[macro_export]
+macro_rules! create_median_value_data_provider {
+	(
+		$TypeName:ident, $( $Provider:ty ),*
+	) => {
+		pub struct $TypeName;
+		impl DataProvider<CurrencyId, Price> for $TypeName {
+			fn get(key: &CurrencyId) -> Option<Price> {
+				let mut values: Vec<Option<Price>> = Vec::new();
+				$(
+					values.push(<$Provider as DataProvider<CurrencyId, Price>>::get(&key));
+				)*
+
+				values.retain(|&x| x != None);
+				values.sort_by(|a, b| a.cmp(&b));
+				if values.len() == 0 {
+					return None;
+				}
+				let mid = values.len() / 2;
+				if values.len() % 2 == 0 {
+					match (values[mid - 1], values[mid]) {
+						(Some(x), Some(y)) => Some((x + y) / FixedU128::saturating_from_integer(2)),
+						_ => None,
+					}
+				} else {
+					values[mid]
+				}
+			}
+		}
+	};
 }
